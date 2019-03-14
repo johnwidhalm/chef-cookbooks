@@ -1,7 +1,7 @@
-# Cookbook Name:: openldap
-# Attributes:: openldap
+# Cookbook:: openldap
+# Attributes:: default
 #
-# Copyright 2008-2009, Opscode, Inc.
+# Copyright:: 2008-2016, Chef Software, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,46 +16,112 @@
 # limitations under the License.
 #
 
-if domain.length > 0
-  default[:openldap][:basedn] = "dc=#{domain.split('.').join(",dc=")}"
-  default[:openldap][:server] = "ldap.#{domain}"
-end
-
-openldap[:rootpw] = nil
+#
+# per platform settings (generally not overwritten by the user)
+#
 
 # File and directory locations for openldap.
-case platform
-when "redhat","centos"
-  set[:openldap][:dir]        = "/etc/openldap"
-  set[:openldap][:run_dir]    = "/var/run/openldap"
-  set[:openldap][:module_dir] = "/usr/lib64/openldap"  
-when "debian","ubuntu"
-  set[:openldap][:dir]        = "/etc/ldap"
-  set[:openldap][:run_dir]    = "/var/run/slapd"
-  set[:openldap][:module_dir] = "/usr/lib/ldap"
+case node['platform_family']
+when 'rhel', 'fedora', 'suse'
+  default['openldap']['dir'] = '/etc/openldap'
+  default['openldap']['run_dir'] = if node['platform_family'] == 'suse'
+                                     '/run/slapd'
+                                   else
+                                     '/var/run/openldap'
+                                   end
+  default['openldap']['db_dir'] = '/var/lib/ldap'
+  default['openldap']['module_dir'] = '/usr/lib64/openldap'
+  default['openldap']['system_acct'] = 'ldap'
+  default['openldap']['system_group'] = 'ldap'
+when 'debian'
+  default['openldap']['dir'] = '/etc/ldap'
+  default['openldap']['run_dir'] = '/var/run/slapd'
+  default['openldap']['db_dir'] = '/var/lib/ldap'
+  default['openldap']['module_dir'] = '/usr/lib/ldap'
+  default['openldap']['system_acct'] = 'openldap'
+  default['openldap']['system_group'] = 'openldap'
+when 'freebsd'
+  default['openldap']['dir'] = '/usr/local/etc/openldap'
+  default['openldap']['run_dir'] = '/var/run/openldap'
+  default['openldap']['db_dir'] = '/var/db/openldap-data'
+  default['openldap']['module_dir'] = '/usr/local/libexec/openldap'
+  default['openldap']['system_acct'] = 'ldap'
+  default['openldap']['system_group'] = 'ldap'
+end
+
+# backing database
+case node['platform_family']
+when 'freebsd'
+  default['openldap']['modules'] = %w(back_mdb)
+  default['openldap']['database'] = 'mdb'
 else
-  set[:openldap][:dir]        = "/etc/ldap"
-  set[:openldap][:run_dir]    = "/var/run/slapd"
-  set[:openldap][:module_dir] = "/usr/lib/ldap"
+  default['openldap']['modules'] = %w(back_hdb)
+  default['openldap']['database'] = 'hdb'
+  default['openldap']['dbconfig']['set_cachesize'] = '0 31457280 0'
+  default['openldap']['dbconfig']['set_lk_max_objects'] = '1500'
+  default['openldap']['dbconfig']['set_lk_max_locks'] = '1500'
+  default['openldap']['dbconfig']['set_lk_max_lockers'] = '1500'
 end
 
-openldap[:ssl_dir] = "#{openldap[:dir]}/ssl"
-openldap[:cafile]  = "#{openldap[:ssl_dir]}/ca.crt"
+# package settings
+default['openldap']['package_install_action'] = :install
 
-# Server settings.
-openldap[:slapd_type] = nil
+#
+# openldap configuration (generally overwritten by the user)
+#
 
-if openldap[:slapd_type] == "slave"
-  master = search(:nodes, 'openldap_slapd_type:master') 
-  default[:openldap][:slapd_master] = master
-  default[:openldap][:slapd_replpw] = nil
-  default[:openldap][:slapd_rid]    = 102
+default['openldap']['basedn'] = 'dc=localdomain'
+default['openldap']['cn'] = 'admin'
+default['openldap']['server'] = 'ldap.localdomain'
+
+unless node['domain'].nil? || node['domain'].split('.').count < 2
+  default['openldap']['basedn'] = "dc=#{node['domain'].split('.').join(',dc=')}"
+  default['openldap']['server'] = "ldap.#{node['domain']}"
 end
 
-# Auth settings for Apache.
-if openldap[:basedn] && openldap[:server]
-  default[:openldap][:auth_type]   = "openldap"
-  default[:openldap][:auth_binddn] = "ou=people,#{openldap[:basedn]}"
-  default[:openldap][:auth_bindpw] = nil
-  default[:openldap][:auth_url]    = "ldap://#{openldap[:server]}/#{openldap[:auth_binddn]}?uid?sub?(objecctClass=*)"
-end
+default['openldap']['rootpw'] = nil
+default['openldap']['preseed_dir'] = '/var/cache/local/preseeding'
+default['openldap']['loglevel'] = 'sync config'
+default['openldap']['schemas'] = %w(core.schema cosine.schema nis.schema inetorgperson.schema)
+
+# TLS/SSL
+default['openldap']['ldaps_enabled'] = false
+default['openldap']['tls_enabled'] = false
+default['openldap']['tls_cert'] = nil
+default['openldap']['tls_key'] = nil
+default['openldap']['tls_cafile'] = nil
+default['openldap']['tls_ciphersuite'] = nil
+
+# syncrepl
+default['openldap']['slapd_type'] = nil
+default['openldap']['slapd_provider'] = nil
+default['openldap']['slapd_replpw'] = nil
+default['openldap']['slapd_rid'] = 102
+default['openldap']['syncrepl_uri'] = 'ldap'
+default['openldap']['syncrepl_port'] = '389'
+
+# syncrepl_cn affects provider and consumer
+default['openldap']['syncrepl_cn'] = 'cn=syncrole'
+
+# syncrepl provider config parameters
+default['openldap']['syncrepl_provider_config']['overlay'] = 'syncprov'
+default['openldap']['syncrepl_provider_config']['syncprov-checkpoint'] = '100 10'
+default['openldap']['syncrepl_provider_config']['syncprov-sessionlog'] = '100'
+
+# syncrepl consumer config parameters
+default['openldap']['syncrepl_consumer_config']['type'] = 'refreshAndPersist'
+default['openldap']['syncrepl_consumer_config']['interval'] = '01:00:00:00'
+default['openldap']['syncrepl_consumer_config']['searchbase'] = nil
+default['openldap']['syncrepl_consumer_config']['filter'] = '"(objectClass=*)"'
+default['openldap']['syncrepl_consumer_config']['scope'] = 'sub'
+default['openldap']['syncrepl_consumer_config']['schemachecking'] = 'off'
+default['openldap']['syncrepl_consumer_config']['bindmethod'] = 'simple'
+default['openldap']['syncrepl_consumer_config']['binddn'] = nil
+default['openldap']['syncrepl_consumer_config']['starttls'] = 'no' # yes or no
+default['openldap']['syncrepl_consumer_config']['credentials'] = nil
+
+# The server_config_hash hash is parsed directly into the slapd.conf file
+# You can add to the hashes in wrapper cookbooks to add your own config options
+
+# The maximum number of entries that is returned for a search operation
+default['openldap']['server_config_hash']['sizelimit'] = 500

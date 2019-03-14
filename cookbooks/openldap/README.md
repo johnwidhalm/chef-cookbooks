@@ -1,121 +1,110 @@
-Description
-===========
+# openldap Cookbook
 
-Configures a server to be an OpenLDAP master, OpenLDAP replication
-slave, or OpenLDAP client.
+[![Build Status](https://travis-ci.org/chef-cookbooks/openldap.svg?branch=master)](http://travis-ci.org/chef-cookbooks/openldap) [![Cookbook Version](https://img.shields.io/cookbook/v/openldap.svg)](https://supermarket.chef.io/cookbooks/openldap)
 
-Requirements
-============
+Configures a server to be an OpenLDAP master or replication slave. Also includes a recipe to install the client libs, but not to setup actual LDAP auth as there are several ways to do this. We recommend looking at our [sssd_ldap cookbook](https://github.com/chef-cookbooks/sssd_ldap)
 
-## Platform:
+## Requirements
 
-Ubuntu 8.10 was primarily used in testing this cookbook. Other Ubuntu
-versions and Debian may work. CentOS and Red Hat are not fully
-supported, but we take patches.
+### Platforms
 
-## Cookbooks:
+- Ubuntu
+- Debian
+- FreeBSD
+- RHEL/CentOS
+- Fedora
+- openSUSE Leap
 
-* openssh 
-* nscd
+### Chef
 
-Attributes
-==========
+- Chef 12.7+
 
-Be aware of the attributes used by this cookbook and adjust the
-defaults for your environment where required, in
-attributes/openldap.rb.
+### Cookbooks
 
-## Client node attributes
+- dpkg_autostart
 
-* `openldap[:basedn]` - basedn 
-* `openldap[:server]` - the LDAP server fully qualified domain name,
-  default `'ldap'.node[:domain]`.
+## Attributes
 
-## Server node attributes
+This is not an exhaustive list of attributes as most are directly comparable to their OpenLDAP equivalents.
 
-* `openldap[:slapd_type]` - master | slave
-* `openldap[:slapd_rid]` - unique integer ID, required if type is slave.
-* `openldap[:slapd_master]` - hostname of slapd master, attempts to
-  search for slapd_type master.
+### Required
 
-## Apache configuration attributes
+- `openldap['rootpw']`
 
-Attributes useful for Apache authentication with LDAP.
+This should be a password hash generated from slappasswd. The default slappasswd command will generate a salted SHA1 hash:
 
-COOK-128 - set automatically based on openldap[:server] and
-openldap[:basedn] if those attributes are set. openldap[:auth_bindpw]
-remains nil by default as a default value is not easily predicted.
+```
+$ slappasswd -s "secretsauce"
+{SSHA}6BjlvtSbVCL88li8IorkqMSofkLio58/
+```
 
-* `openldap[:auth_type]` - determine whether binddn and bindpw are
-  required (openldap no, ad yes)
-* `openldap[:auth_url]` - AuthLDAPURL
-* `openldap[:auth_binddn]` - AuthLDAPBindDN
-* `openldap[:auth_bindpw]` - AuthLDAPBindPassword
+Set this via a node/role/env attribute or in a wrapper cookbook with an encrypted data_bag. OpenLDAP will fail to start if this is not set.
 
-Usage
-=====
+### Install/Upgrade
 
-Edit Rakefile variables for SSL certificate.
+- `openldap['package_install_action']` - The action to be taken for all packages in the recipes. Defaults to :install, but can also be set to :upgrade to upgrade all packages referenced in the recipes.
 
-On client systems, 
+### General configuration
 
-    include_recipe "openldap::auth"
-  
-This will get the required packages and configuration for client
-systems. This will be required on server systems as well, so this is a
-good candidate for inclusion in a base role.
+- `openldap['schemas']` - Array of ldap schema file names to load
+- `openldap['modules']` - Array of slapd modules names to load
 
-On server systems, set the server node attributes in the Chef node, or
-in a JSON attributes file. Include the openldap::server recipe:
+### TLS/SSL
 
-    include_recipe "openldap::server"
-  
-When initially installing a brand new LDAP master server on Ubuntu
-8.10, the configuration directory may need to be removed and recreated
-before slapd will start successfully. Doing this programmatically may
-cause other issues, so fix the directory manually :-).
+If `openldap['ldaps_enabled']` or `openldap['tls_enabled']` are set, then `openldap['tls_cert']` and `openldap['tls_key']` must also be set and the files must exist prior to execution. Depending on the certificates, `openldap['tls_cafile']` may also need to be set. See the test cookbook for an example.
 
-    $ sudo slaptest -F /etc/ldap/slapd.d
-    str2entry: invalid value for attributeType objectClass #1 (syntax 1.3.6.1.4.1.1466.115.121.1.38)
-    => ldif_enum_tree: failed to read entry for /etc/ldap/slapd.d/cn=config/olcDatabase={1}bdb.ldif
-    slaptest: bad configuration directory!
+- `openldap['ldaps_enabled']` - listen on LDAPS (636) true | false (default)
+- `openldap['tls_enabled']` - true | false (default)
+- `openldap['tls_cert']` - full path to your SSL certificate
+- `openldap['tls_key']` - full path to your SSL key
+- `openldap['tls_cafile']` - full path to your CA certificate (or intermediate authorities), if needed.
+- `openldap['tls_ciphersuite']` - OpenSSL cipher suite specification to use, defaults to none (use system default)
 
-Simply remove the configuration, rerun chef-client. For some reason
-slapd isn't getting started even though the service resource is
-notified to start, so start it manually.
+### Replication
 
-    $ sudo rm -rf /etc/ldap/slapd.d/ /etc/ldap/slapd.conf
-    $ sudo chef-client
-    $ sudo /etc/init.d/slapd start
-  
-### A note about certificates
+Attributes related to replication (syncrepl). Only used if a provider or consumer.
 
-Certificates created by the Rakefile are self signed. If you have a
-purchased CA, that can be used. Be sure to update the certificate
-locations in the templates as required. We suggest copying this
-cookbook to the site-cookbooks for such modifications, so you can
-still pull from our master for updates, and then merge your changes
-in.
-  
-## New Directory:
+- `openldap['slapd_type']` - `'provider' | 'consumer'`, default is `nil`
+- `openldap['slapd_provider']` - hostname of slapd provider
+- `openldap['slapd_replpw']` - replication password
+- `openldap['slapd_rid']` - unique integer ID, required if type is consumer
+- `openldap['syncrepl_uri']` - `ldap (default) | ldaps`
+- `openldap['syncrepl_port']` - `'389 (default) | 636'`
+- `openldap['syncrepl_cn']` - the CN (only) of the user to use as binddn as consumer
 
-If installing for the first time, the initial directory needs to be created. Create an ldif file, and start populating the directory.
-  
-## Passwords:
+The following syncrepl values are set by default, others can be added by setting the appropriate key value
+pair in the `openldap['syncrepl_*_config]` (See the OpenLDAP Adminstrator Guide):
 
-Set the password, openldap[:rootpw] for the rootdn in the node's attributes. This should be a password hash generated from slappasswd. The default slappasswd command on Ubuntu 8.10 and Mac OS X 10.5 will generate a SHA1 hash:
+- `openldap']['syncrepl_provider_config']['overlay']` - defaults to 'syncprov'
+- `openldap']['syncrepl_provider_config']['syncprov-checkpoint']` - defaults to '100 10'
+- `openldap']['syncrepl_provider_config']['syncprov-sessionlog']` - defaults to '100'
+- `openldap['syncrepl_consumer_config']['type']` - defaults to 'refreshAndPersist'
+- `openldap['syncrepl_consumer_config']['interval']` - interval for the sync. Defaults to 1 day
+- `openldap['syncrepl_consumer_config']['searchbase']` - calculated in recipe
+- `openldap['syncrepl_consumer_config']['filter']` - search filter to use in the replication
+- `openldap['syncrepl_consumer_config']['scope']` - defaults to 'sub'
+- `openldap['syncrepl_consumer_config']['schemachecking']` - defaults to 'off'
+- `openldap['syncrepl_consumer_config']['bindmethod']` - defaults to 'simple'
+- `openldap['syncrepl_consumer_config']['binddn']` - calculated in recipe
+- `openldap['syncrepl_consumer_config']['starttls']` - `yes | no (default)`
+- `openldap['syncrepl_consumer_config']['credentials']` - defaults to `openldap['slapd_replpw']`
+`
 
-    $ slappasswd -s "secretsauce"
-    {SSHA}6BjlvtSbVCL88li8IorkqMSofkLio58/
-  
-Set this by default in the attributes file, or on the node's entry in the webui.  
-  
-License and Author
-==================
+## Recipes
 
-Author:: Joshua Timberman (<joshua@opscode.com>)
-Copyright:: 2009, Opscode, Inc
+### default
 
+Install and configure OpenLDAP (slapd).
+
+## Maintainers
+
+This cookbook is maintained by Chef's Community Cookbook Engineering team. Our goal is to improve cookbook quality and to aid the community in contributing to cookbooks. To learn more about our team, process, and design goals see our [team documentation](https://github.com/chef-cookbooks/community_cookbook_documentation/blob/master/COOKBOOK_TEAM.MD). To learn more about contributing to cookbooks like this see our [contributing documentation](https://github.com/chef-cookbooks/community_cookbook_documentation/blob/master/CONTRIBUTING.MD), or if you have general questions about this cookbook come chat with us in #cookbok-engineering on the [Chef Community Slack](http://community-slack.chef.io/)
+
+## License
+
+**Copyright:** 2008-2017, Chef Software, Inc.
+
+```
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -127,3 +116,4 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+```
