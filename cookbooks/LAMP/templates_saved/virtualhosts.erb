@@ -1,0 +1,16 @@
+<VirtualHost *:<%= @port %>>
+        ServerAdmin <%= @serveradmin %>
+        ServerName <%= @servername %>
+        ServerAlias www.<%= @servername %>
+        DocumentRoot <%= @document_root %>/public_html
+        ErrorLog <%= @document_root %>/logs/error.log
+        <Directory <%= @document_root %>/public_html>
+                Require all granted
+        </Directory>
+</VirtualHost>
+
+# Open and edit the virtualhosts.erb file. Instead of writing 
+# in the true values for each VirtualHost parameter, use Ruby 
+# variables. Ruby variables are identified by the <%= @variable_name %> syntax. 
+# The variable names you use will need to be defined in the recipe file:
+
